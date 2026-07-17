@@ -43,6 +43,8 @@ from myPyllant.api import AmbisenseNoFacilityError, MyPyllantAPI
 from myPyllant.enums import DeviceDataBucketResolution
 from myPyllant.models import System, DeviceData, Home
 
+from custom_components.mypyllant.scf import SCF, ScfSystem, fetch_scf_state, walk_state
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -270,6 +272,9 @@ class MyPyllantCoordinator(DataUpdateCoordinator):
 class SystemCoordinator(MyPyllantCoordinator):
     data: list[System]  # type: ignore
     homes: list[Home] = []
+    # scf/iQconnect-Systeme laufen an myPyllants System-Modell vorbei (anderes Backend,
+    # anderes Schema) und werden hier separat gehalten. Leere Liste = keine scf-Geräte.
+    scf_systems: list[ScfSystem] = []
 
     async def _async_update_data(self) -> list[System]:  # type: ignore
         self._raise_if_quota_hit()
@@ -304,21 +309,40 @@ class SystemCoordinator(MyPyllantCoordinator):
                 ]
             else:
                 _LOGGER.debug("Using cached homes for systems fetch")
-            data = [
-                s
-                async for s in await self.hass.async_add_executor_job(
-                    self.api.get_systems,
-                    include_connection_status,
-                    include_diagnostic_trouble_codes,
-                    include_rts,
-                    include_mpc,
-                    include_ambisense_rooms,
-                    include_energy_management,
-                    include_eebus,
-                    include_ambisense_capability,
-                    self.homes,
+
+            # Homes nach Control Identifier trennen: scf läuft über einen eigenen
+            # Endpunkt, alles andere (tli/vrc700) über myPyllants get_systems.
+            scf_homes: list[Home] = []
+            other_homes: list[Home] = []
+            for home in self.homes:
+                control_identifier = await self.api.get_control_identifier(
+                    home.system_id
                 )
-            ]
+                if str(control_identifier) == SCF:
+                    scf_homes.append(home)
+                else:
+                    other_homes.append(home)
+
+            data: list[System] = []
+            if other_homes:
+                data = [
+                    s
+                    async for s in await self.hass.async_add_executor_job(
+                        self.api.get_systems,
+                        include_connection_status,
+                        include_diagnostic_trouble_codes,
+                        include_rts,
+                        include_mpc,
+                        include_ambisense_rooms,
+                        include_energy_management,
+                        include_eebus,
+                        include_ambisense_capability,
+                        other_homes,
+                    )
+                ]
+
+            self.scf_systems = await self._fetch_scf_systems(scf_homes)
+
             # Clear quota state on successful fetch so future updates aren't blocked
             self._clear_quota_state()
             return data
@@ -335,6 +359,34 @@ class SystemCoordinator(MyPyllantCoordinator):
         except (CancelledError, TimeoutError) as e:
             self._raise_api_down(e)
             return []  # mypy
+
+    async def _fetch_scf_systems(self, scf_homes: list[Home]) -> list[ScfSystem]:
+        """State jedes scf-Systems holen und in HA-taugliche Punkte übersetzen.
+
+        Ein Fehler bei EINEM scf-Home darf die übrigen Systeme nicht mitreißen — daher
+        pro Home gekapselt. Bei Quota-Fehlern nach oben durchreichen (der äußere Handler
+        setzt den Backoff)."""
+        result: list[ScfSystem] = []
+        for home in scf_homes:
+            try:
+                state = await fetch_scf_state(self.api, home.system_id)
+            except ClientResponseError:
+                raise  # Quota/Auth → äußerer Handler
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Could not fetch scf state for %s: %s", home.system_id, e
+                )
+                continue
+            points = walk_state(home.system_id, state)
+            result.append(
+                ScfSystem(
+                    system_id=home.system_id,
+                    home_name=getattr(home, "home_name", None) or home.name,
+                    nomenclature=getattr(home, "nomenclature", "iQconnect"),
+                    points=points,
+                )
+            )
+        return result
 
 
 class SystemWithDeviceData(TypedDict):

@@ -274,10 +274,30 @@ async def create_daily_data_sensors(
     return sensors
 
 
+def create_scf_sensors(
+    hass: HomeAssistant, config: ConfigEntry
+) -> EntityList[SensorEntity]:
+    """Sensoren für scf/iQconnect-Systeme (eigener Datenpfad, s. coordinator.scf_systems)."""
+    from .scf_entity import ScfSensor
+
+    system_coordinator: SystemCoordinator = hass.data[DOMAIN][config.entry_id][
+        "system_coordinator"
+    ]
+    sensors: EntityList[SensorEntity] = EntityList()
+    for system in getattr(system_coordinator, "scf_systems", []):
+        for point in system.by_platform("sensor"):
+            sensors.append(
+                lambda p=point: ScfSensor(system_coordinator, p)
+            )
+    return sensors
+
+
 async def async_setup_entry(
     hass: HomeAssistant, config: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    async_add_entities(await create_system_sensors(hass, config))  # type: ignore
+    entities = await create_system_sensors(hass, config)
+    entities.extend(create_scf_sensors(hass, config))
+    async_add_entities(entities)  # type: ignore
     async_add_entities(await create_daily_data_sensors(hass, config))  # type: ignore
 
 
