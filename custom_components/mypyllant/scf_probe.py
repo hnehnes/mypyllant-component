@@ -44,20 +44,19 @@ async def probe(api: MyPyllantAPI) -> None:
         return
 
     sid = homes[0].system_id
-    candidates = [
-        ("system-control/v1 .../state", f"{ROOT}/system-control/v1/systems/{sid}/state"),
-        ("end-user-app-api/v1 .../state", f"{ROOT}/end-user-app-api/v1/systems/{sid}/state"),
-    ]
-    for label, url in candidates:
-        try:
-            async with api.aiohttp_session.get(
-                url, headers=api.get_authorized_headers()
-            ) as r:
-                body = _redact((await r.text())[:2500])
-                mark = "★★★ TREFFER" if r.status == 200 else f"[{r.status}]"
-                _LOGGER.error("SCF-STATE %s %s\n%s", mark, label, body)
-        except Exception as exc:
-            _LOGGER.error("SCF-STATE %s → EXC %s", label, str(exc)[:120])
+    # Nur noch EIN GET: der bestätigte Endpunkt, diesmal VOLLSTÄNDIG (in Blöcken geloggt,
+    # weil HA-Logzeilen sonst gekappt werden).
+    url = f"{ROOT}/system-control/v1/systems/{sid}/state"
+    try:
+        async with api.aiohttp_session.get(
+            url, headers=api.get_authorized_headers()
+        ) as r:
+            full = _redact(await r.text())
+            _LOGGER.error("SCF-STATE status=%s len=%s", r.status, len(full))
+            for i in range(0, len(full), 1500):
+                _LOGGER.error("SCF-STATE#%02d %s", i // 1500, full[i:i + 1500])
+    except Exception as exc:
+        _LOGGER.error("SCF-STATE → EXC %s", str(exc)[:120])
 
 
 _done = False
