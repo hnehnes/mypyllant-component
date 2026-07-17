@@ -1,5 +1,6 @@
 from __future__ import annotations
 from . import scf_patch  # noqa: F401  # iQconnect/scf-Support, siehe scf_patch.py
+from . import scf_probe  # noqa: F401  # TEMPORÄR: Base-URL-Sonde, nach Auswertung entfernen
 
 import logging
 from datetime import datetime as dt, timedelta
