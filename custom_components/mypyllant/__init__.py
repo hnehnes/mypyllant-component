@@ -1,4 +1,5 @@
 from __future__ import annotations
+from . import scf_patch  # noqa: F401  # iQconnect/scf-Support, siehe scf_patch.py
 
 import logging
 from datetime import datetime as dt, timedelta
