@@ -68,6 +68,11 @@ class ScfPoint:
         return self.metadata.get("type") if self.metadata else None
 
     @property
+    def is_schedule(self) -> bool:
+        """Wochenplan (TIME_PERIODS): value ist ein dict {DAY: [{startTime,endTime,setpoint}]}."""
+        return self.mtype == "TIME_PERIODS" and isinstance(self.value, dict)
+
+    @property
     def has_write(self) -> bool:
         """Nur Felder mit verifizierter Schreibzuordnung sind steuerbar."""
         from custom_components.mypyllant.scf_write import write_spec
@@ -80,6 +85,8 @@ class ScfPoint:
         Ohne bestätigten Schreib-Endpunkt bleibt ein Feld ein (Lese-)Sensor — auch wenn
         die API es als writable markiert. So verschwindet nichts, und es entstehen keine
         Regler, die ins Leere schreiben würden."""
+        if self.is_schedule:
+            return "sensor"  # Wochenplan als Lese-Sensor (Status + Attribute je Tag)
         if self.has_write:
             t = self.mtype
             if t == "BOOL":
@@ -117,8 +124,11 @@ def _add_point(sid, section, key, path, node, out) -> None:
     value = node.get("value")
     if value is None:
         return  # Gerät liefert dieses Feld nicht → überspringen, nicht crashen
-    # Komplexe Werte (Objekte/Listen) sind keine simplen Entitäten → auslassen
-    if isinstance(value, (dict, list)):
+    metadata = node.get("metadata")
+    mtype = metadata.get("type") if metadata else None
+    # Wochenpläne (TIME_PERIODS) durchlassen — werden als Schedule-Sensor gerendert.
+    # Andere komplexe Werte (Objekte/Listen) sind keine Entitäten → auslassen.
+    if isinstance(value, (dict, list)) and mtype != "TIME_PERIODS":
         return
     out.append(
         ScfPoint(

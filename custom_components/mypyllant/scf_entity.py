@@ -103,23 +103,78 @@ def _sensor_traits(key: str) -> tuple[str | None, str | None, str | None]:
     return None, None, None
 
 
+_WEEKDAYS = [
+    ("monday", "Mo"), ("tuesday", "Di"), ("wednesday", "Mi"), ("thursday", "Do"),
+    ("friday", "Fr"), ("saturday", "Sa"), ("sunday", "So"),
+]
+
+
+def _hhmm(minutes) -> str:
+    try:
+        m = int(minutes)
+    except (TypeError, ValueError):
+        return "?"
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def _day_slots(day_value) -> list[str]:
+    """Slot-Liste eines Tages → ['05:30–06:00', …]."""
+    out = []
+    for slot in day_value or []:
+        out.append(f"{_hhmm(slot.get('startTime'))}–{_hhmm(slot.get('endTime'))}")
+    return out
+
+
+def _schedule_by_day(value: dict) -> dict[str, list[str]]:
+    """{MONDAY|monday: [...]} → {'Mo': ['05:30–06:00', …], …} (Groß/Klein-tolerant)."""
+    lower = {str(k).lower(): v for k, v in (value or {}).items()}
+    return {short: _day_slots(lower.get(name, [])) for name, short in _WEEKDAYS}
+
+
+def _schedule_summary(by_day: dict[str, list[str]]) -> str:
+    """Kompakte Zusammenfassung; gleiche Tage werden zu Gruppen zusammengefasst."""
+    # Tage mit identischem Plan gruppieren, Reihenfolge erhalten
+    groups: list[tuple[list[str], list[str]]] = []
+    for short, slots in by_day.items():
+        if groups and groups[-1][1] == slots:
+            groups[-1][0].append(short)
+        else:
+            groups.append(([short], slots))
+    parts = []
+    for days, slots in groups:
+        rng = days[0] if len(days) == 1 else f"{days[0]}–{days[-1]}"
+        parts.append(f"{rng}: {', '.join(slots) if slots else 'aus'}")
+    return " · ".join(parts)[:255]
+
+
 class ScfSensor(ScfEntity, SensorEntity):
     def __init__(self, coordinator: SystemCoordinator, point: ScfPoint) -> None:
         super().__init__(coordinator, point)
-        unit, device_class, state_class = _sensor_traits(point.key)
-        self._attr_native_unit_of_measurement = unit
-        self._attr_device_class = device_class
-        self._attr_state_class = state_class
+        if not point.is_schedule:
+            unit, device_class, state_class = _sensor_traits(point.key)
+            self._attr_native_unit_of_measurement = unit
+            self._attr_device_class = device_class
+            self._attr_state_class = state_class
 
     @property
     def native_value(self):
         point = self.point
         if not point:
             return None
+        if point.is_schedule:
+            return _schedule_summary(_schedule_by_day(point.value))
         value = point.value
         if isinstance(value, float):
             return round(value, 2)
         return value
+
+    @property
+    def extra_state_attributes(self):
+        point = self.point
+        if point and point.is_schedule:
+            # Voller Plan pro Tag als Attribute (für Automationen/Detailansicht).
+            return {day: slots for day, slots in _schedule_by_day(point.value).items()}
+        return None
 
 
 class ScfBinarySensor(ScfEntity, BinarySensorEntity):
