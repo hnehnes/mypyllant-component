@@ -292,6 +292,27 @@ def create_scf_sensors(
     return sensors
 
 
+def register_scf_schedule_service(hass: HomeAssistant, config: ConfigEntry) -> None:
+    """Entity-Service mypyllant.scf_set_schedule auf der Sensor-Plattform registrieren.
+
+    Nur wenn scf-Systeme existieren (sonst kein Sinn). Der Handler set_schedule liegt auf
+    ScfSensor; HA löst target (den Schedule-Sensor) selbst zur Entität auf."""
+    import voluptuous as vol
+    from homeassistant.helpers import entity_platform
+
+    coordinator: SystemCoordinator = hass.data[DOMAIN][config.entry_id][
+        "system_coordinator"
+    ]
+    if not getattr(coordinator, "scf_systems", []):
+        return
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "scf_set_schedule",
+        {vol.Required("schedule"): dict},
+        "set_schedule",
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant, config: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -299,6 +320,7 @@ async def async_setup_entry(
     entities.extend(create_scf_sensors(hass, config))
     async_add_entities(entities)  # type: ignore
     async_add_entities(await create_daily_data_sensors(hass, config))  # type: ignore
+    register_scf_schedule_service(hass, config)
 
 
 class SystemSensor(SystemCoordinatorEntity, SensorEntity):

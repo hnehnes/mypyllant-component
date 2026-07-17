@@ -393,6 +393,11 @@ class SystemCoordinator(MyPyllantCoordinator):
                 continue
             points = walk_state(home.system_id, state)
             self._log_scf_snapshot_once(home.system_id, points)
+            # TEMPORARY: one-shot no-op probe for the circuitTimePeriods endpoint. Remove
+            # together with scf_probe.py once the endpoint is confirmed.
+            from custom_components.mypyllant.scf_probe import probe_circuit_time_periods
+
+            await probe_circuit_time_periods(self.api, home.system_id, points)
             result.append(
                 ScfSystem(
                     system_id=home.system_id,

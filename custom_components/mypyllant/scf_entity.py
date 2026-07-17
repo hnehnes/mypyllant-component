@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfPressure, UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -176,6 +177,18 @@ class ScfSensor(ScfEntity, SensorEntity):
             return {day: slots for day, slots in _schedule_by_day(point.value).items()}
         return None
 
+    async def set_schedule(self, schedule: dict) -> None:
+        """Service mypyllant.scf_set_schedule — kompletten Wochenplan schreiben."""
+        point = self.point
+        if not point or not point.is_schedule:
+            raise HomeAssistantError(
+                "scf_set_schedule: Ziel ist kein Wochenplan-Sensor"
+            )
+        await patch_schedule(
+            self.coordinator.api, point.path, self.system_id, schedule
+        )
+        await self.coordinator.async_request_refresh()
+
 
 class ScfBinarySensor(ScfEntity, BinarySensorEntity):
     @property
@@ -188,7 +201,10 @@ class ScfBinarySensor(ScfEntity, BinarySensorEntity):
 from homeassistant.components.number import NumberEntity  # noqa: E402
 from homeassistant.components.select import SelectEntity  # noqa: E402
 
-from custom_components.mypyllant.scf_write import patch_value  # noqa: E402
+from custom_components.mypyllant.scf_write import (  # noqa: E402
+    patch_schedule,
+    patch_value,
+)
 
 
 class ScfWriteMixin:

@@ -1,32 +1,30 @@
-"""Laufzeit-Patch: macht myPyllant den Control Identifier 'scf' bekannt.
+"""Runtime patch: teaches myPyllant the control identifier 'scf'.
 
-Hintergrund
------------
-Vaillant-Geräte der iQconnect-Generation (z. B. geoCOMPACT VWS ../8.1 iQ) melden unter
+Background
+----------
+iQconnect-generation Vaillant devices (e.g. geoCOMPACT VWS ../8.1 iQ) report
     GET /systems/{systemId}/meta-info/control-identifier
-den Wert ``scf``. myPyllants ``ControlIdentifier``-Enum kennt nur ``tli``/``vrc700``/
-``unsupported`` und hat keinen ``_missing_``-Handler, also:
+as ``scf``. myPyllant's ``ControlIdentifier`` enum only knows ``tli``/``vrc700``/
+``unsupported`` and has no ``_missing_`` handler, so:
 
     ValueError: 'scf' is not a valid ControlIdentifier      # api.py:1314
 
-Das passiert in ``get_systems()`` beim ersten Home und bricht den kompletten Datenabruf ab
-→ „No systems available", 0 Geräte, 0 Entitäten.
+This happens in ``get_systems()`` on the first home and aborts the whole data fetch
+→ "No systems available", 0 devices, 0 entities.
 
-Status
-------
-In diesem Fork ist der Patch bereits eingebunden: ``__init__.py`` importiert ihn direkt
-unter ``from __future__ import annotations``. Manuell einzuspielen ist nichts.
+Scope
+-----
+This adds the ``scf`` control identifier at runtime until the myPyllant library ships it
+itself. ``__init__.py`` imports this module directly under
+``from __future__ import annotations``, so ``apply()`` runs before the coordinator fetches
+data. Once myPyllant supports ``scf`` natively, this module can be dropped.
 
-Dieser Fork ist eine **Brücke**, bis myPyllant ``scf`` selbst kennt. Sobald der Upstream-Fix
-in signalkraft/myPyllant gemerged ist, sollte man wieder auf die offizielle Integration
-zurückwechseln (HACS → Custom-Repo entfernen → offizielle Version neu installieren).
-
-Warum Monkeypatch statt Edit in site-packages
----------------------------------------------
-myPyllant liegt im HA-Core-Container unter ``/usr/local/lib/python3.14/site-packages/``.
-Das ist von Studio Code Server / File editor aus nicht erreichbar (die sehen nur ``/config``)
-und der Edit ginge beim nächsten Core-Update verloren. ``/config`` ist der Ort, an den man
-als Nutzer herankommt.
+Why a monkeypatch instead of editing site-packages
+--------------------------------------------------
+The myPyllant library lives inside the HA core container under
+``/usr/local/lib/pythonX.Y/site-packages/``, which is not reachable from the user-facing
+``/config`` mount and where any edit would be lost on the next core update. Patching from
+within the component keeps the change in a location the user controls.
 """
 
 from __future__ import annotations
@@ -42,18 +40,18 @@ _LOGGER = logging.getLogger(__name__)
 
 SCF = "scf"
 
-# Abgeleitet aus dem URL-Template der myVAILLANT-App (3.8.0, React-Native-Bundle):
+# Derived from the URL template of the myVAILLANT app (3.8.0, React Native bundle):
 #     /{controlIdentifier}/v1/systems/{systemId}/...
-# Deckt sich mit dem bekannten vrc700 → service-connected-control/vrc700/v1.
+# Matches the known vrc700 → service-connected-control/vrc700/v1.
 SCF_API_URL_BASE = "https://api.vaillant-group.com/service-connected-control/scf/v1"
 
 
 class ControlIdentifier(MyPyllantEnum):
-    """Ersetzt myPyllants Enum um den Wert ``scf``.
+    """Re-defines myPyllant's enum with the added value ``scf``.
 
-    Nachbau statt Erweiterung, weil Python-Enums nach Klassenerstellung keine Member mehr
-    aufnehmen. Die Properties müssen mitkopiert werden — models.py ruft ``.is_vrc700`` auf
-    Instanzen auf, die api.py mit dieser Klasse erzeugt.
+    Re-defined rather than extended because Python enums cannot gain members after class
+    creation. The properties must be copied along — models.py calls ``.is_vrc700`` on
+    instances that api.py builds with this class.
     """
 
     TLI = "tli"
@@ -75,24 +73,24 @@ class ControlIdentifier(MyPyllantEnum):
 
 
 def apply() -> None:
-    """Idempotent anwendbar — HA importiert Module gelegentlich mehrfach."""
+    """Idempotent — HA occasionally imports modules more than once."""
     if getattr(myPyllant.api, "_scf_patch_applied", False):
         return
 
-    # API_URL_BASE ist ein dict und wird per `from ... import` als OBJEKT geteilt.
-    # In-place-Mutation wirkt daher in const.py und api.py gleichzeitig — kein Rebind nötig.
+    # API_URL_BASE is a dict and is shared as an OBJECT via `from ... import`. Mutating it
+    # in place therefore takes effect in both const.py and api.py — no rebind needed.
     API_URL_BASE.setdefault(SCF, SCF_API_URL_BASE)
 
-    # Die Enum-KLASSE wird dagegen per `from ... import` in jeden Namespace kopiert.
-    # Ein Rebind in enums.py allein bliebe für api.py wirkungslos → beide setzen.
-    # models.py braucht keinen Rebind: dort ist ControlIdentifier nur Typannotation
-    # (kein Konstruktor, kein match) — verifiziert in myPyllant 0.9.16.
+    # The enum CLASS, by contrast, is copied into every namespace by `from ... import`.
+    # A rebind in enums.py alone would have no effect in api.py → set both.
+    # models.py needs no rebind: there ControlIdentifier is only a type annotation
+    # (no constructor, no match) — verified in myPyllant 0.9.16.
     myPyllant.enums.ControlIdentifier = ControlIdentifier
     myPyllant.api.ControlIdentifier = ControlIdentifier
 
     myPyllant.api._scf_patch_applied = True
     _LOGGER.info(
-        "myPyllant um Control Identifier '%s' erweitert (Base: %s)", SCF, SCF_API_URL_BASE
+        "Extended myPyllant with control identifier '%s' (base: %s)", SCF, SCF_API_URL_BASE
     )
 
 

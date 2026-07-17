@@ -1,7 +1,7 @@
-"""Select-Plattform — aktuell nur für scf/iQconnect-Systeme (Betriebsarten).
+"""Select platform — currently only for scf/iQconnect systems (operation modes).
 
-myPyllant modelliert Modi über climate/water_heater; scf-Enum-Felder mit `allowedValues`
-werden hier generisch zu Select-Entitäten.
+myPyllant models modes via climate/water_heater; scf enum fields with `allowedValues`
+become generic Select entities here.
 """
 
 from __future__ import annotations
