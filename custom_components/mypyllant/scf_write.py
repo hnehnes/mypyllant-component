@@ -48,13 +48,20 @@ WRITE_MAP: dict[tuple[str, str, str], tuple[str, str, str]] = {
     ("zoneSettings", "heating", "manualModeTemperatureSetpoint"): (
         "zones/{i}/heating-temperature-setpoint", "setpoint", _BASE_SC,
     ),
-    # Hinweis: Heizkreis-Parameter (heatingCurve, min-flow-temperature-setpoint) werden
-    # laut App-Dekompilat nur über /{controlIdentifier}/v1/circuit/... geschrieben — für
-    # scf ist das /scf/v1, das für Schreibzugriffe 404 liefert (No-Op-Test 2026-07-17,
-    # /scf/v1/.../circuit/1/heating-curve → 404). system-control/v1 bietet KEINEN
-    # Heizkreis-Schreibpfad. Heizkurve für scf daher aktuell NICHT schreibbar → bleibt
-    # Lese-Sensor. Wieder aufnehmen, sobald Vaillant einen scf-Schreibpfad bereitstellt.
+    # Heizkreis: Pfad ist system-control/v1/.../CIRCUITS (Plural!) — per No-Op-Sonde
+    # gefunden (2026-07-17: circuits/1/heating-curve {heatingCurve} → 202 Accepted).
+    # circuit (Singular, aus dem OpenAPI-Client) und /scf/v1 liefern beide 404.
+    ("circuitSettings", "configuration", "heatingCurve"): (
+        "circuits/{i}/heating-curve", "heatingCurve", _BASE_SC,
+    ),
+    # Weitere Heizkreis-Setpoints (min/max-Vorlauf, Offsets) liegen sehr wahrscheinlich
+    # ebenfalls unter circuits/{i}/... — Body-Schlüssel aber noch ungetestet, daher erst
+    # nach eigenem No-Op-Test aufnehmen (bleiben bis dahin Lese-Sensoren).
 }
+
+# _BASE_SCF wird derzeit nicht genutzt (scf/v1 liefert für Schreibzugriffe 404), bleibt
+# aber für den Fall, dass Vaillant die Base später aktiviert.
+_ = _BASE_SCF
 
 
 def _base_url(base: str, system_id: str) -> str:
