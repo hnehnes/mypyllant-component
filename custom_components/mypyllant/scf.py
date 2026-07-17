@@ -67,20 +67,27 @@ class ScfPoint:
     def mtype(self) -> str | None:
         return self.metadata.get("type") if self.metadata else None
 
+    @property
+    def has_write(self) -> bool:
+        """Nur Felder mit verifizierter Schreibzuordnung sind steuerbar."""
+        from custom_components.mypyllant.scf_write import write_spec
+
+        return self.writable and write_spec(self.path) is not None
+
     def platform(self) -> str:
-        """HA-Plattform aus Wert + metadata ableiten."""
-        if not self.writable:
-            if isinstance(self.value, bool):
-                return "binary_sensor"
-            return "sensor"
-        t = self.mtype
-        if t == "BOOL":
-            return "switch"
-        if t == "ENUM":
-            return "select"
-        if t in ("FLOAT", "LONG"):
-            return "number"
-        # writable, aber komplexer Typ (TIME_PERIODS, DEFAULT-Objekte) → vorerst nur anzeigen
+        """HA-Plattform aus Wert + metadata + Schreibzuordnung ableiten.
+
+        Ohne bestätigten Schreib-Endpunkt bleibt ein Feld ein (Lese-)Sensor — auch wenn
+        die API es als writable markiert. So verschwindet nichts, und es entstehen keine
+        Regler, die ins Leere schreiben würden."""
+        if self.has_write:
+            t = self.mtype
+            if t == "BOOL":
+                return "switch"
+            if t == "ENUM":
+                return "select"
+            if t in ("FLOAT", "LONG"):
+                return "number"
         if isinstance(self.value, bool):
             return "binary_sensor"
         return "sensor"

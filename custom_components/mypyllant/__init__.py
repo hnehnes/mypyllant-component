@@ -49,6 +49,7 @@ PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
     Platform.DATETIME,
     Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
     Platform.WATER_HEATER,

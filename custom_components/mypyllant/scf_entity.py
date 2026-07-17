@@ -127,3 +127,68 @@ class ScfBinarySensor(ScfEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         point = self.point
         return bool(point.value) if point else None
+
+
+# --- Steuerung ---------------------------------------------------------------
+from homeassistant.components.number import NumberEntity  # noqa: E402
+from homeassistant.components.select import SelectEntity  # noqa: E402
+
+from custom_components.mypyllant.scf_write import patch_value  # noqa: E402
+
+
+class ScfWriteMixin:
+    """Gemeinsam: schreiben und danach Coordinator-Refresh anstoßen."""
+
+    async def _write(self, value) -> None:
+        point = self.point  # type: ignore[attr-defined]
+        if not point:
+            return
+        await patch_value(
+            self.coordinator.api,  # type: ignore[attr-defined]
+            point.path,
+            self.system_id,  # type: ignore[attr-defined]
+            value,
+        )
+        await self.coordinator.async_request_refresh()  # type: ignore[attr-defined]
+
+
+class ScfNumber(ScfEntity, ScfWriteMixin, NumberEntity):
+    def __init__(self, coordinator: SystemCoordinator, point: ScfPoint) -> None:
+        super().__init__(coordinator, point)
+        meta = point.metadata or {}
+        if meta.get("minimum") is not None:
+            self._attr_native_min_value = meta["minimum"]
+        if meta.get("maximum") is not None:
+            self._attr_native_max_value = meta["maximum"]
+        if meta.get("stepSize"):
+            self._attr_native_step = meta["stepSize"]
+        unit, device_class, _ = _sensor_traits(point.key)
+        self._attr_native_unit_of_measurement = unit
+        if device_class:
+            self._attr_device_class = device_class
+
+    @property
+    def native_value(self):
+        point = self.point
+        return point.value if point else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        # LONG-Felder (z.B. Ladezeiten) ganzzahlig senden
+        point = self.point
+        if point and point.mtype == "LONG":
+            value = int(value)
+        await self._write(value)
+
+
+class ScfSelect(ScfEntity, ScfWriteMixin, SelectEntity):
+    def __init__(self, coordinator: SystemCoordinator, point: ScfPoint) -> None:
+        super().__init__(coordinator, point)
+        self._attr_options = (point.metadata or {}).get("allowedValues", [])
+
+    @property
+    def current_option(self):
+        point = self.point
+        return point.value if point else None
+
+    async def async_select_option(self, option: str) -> None:
+        await self._write(option)
