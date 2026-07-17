@@ -18,5 +18,5 @@
   "requirements": [
     "myPyllant==0.9.16"
   ],
-  "version": "v0.9.18-scf-ctrl2"
+  "version": "v0.9.18-scf-hc-probe"
 }

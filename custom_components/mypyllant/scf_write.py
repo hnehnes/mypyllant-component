@@ -48,10 +48,12 @@ WRITE_MAP: dict[tuple[str, str, str], tuple[str, str, str]] = {
     ("zoneSettings", "heating", "manualModeTemperatureSetpoint"): (
         "zones/{i}/heating-temperature-setpoint", "setpoint", _BASE_SC,
     ),
-    # --- scf/v1, Base EXPERIMENTELL (per No-Op-Test zu bestätigen) ---
-    ("circuitSettings", "configuration", "heatingCurve"): (
-        "circuit/{i}/heating-curve", "heatingCurve", _BASE_SCF,
-    ),
+    # Hinweis: Heizkreis-Parameter (heatingCurve, min-flow-temperature-setpoint) werden
+    # laut App-Dekompilat nur über /{controlIdentifier}/v1/circuit/... geschrieben — für
+    # scf ist das /scf/v1, das für Schreibzugriffe 404 liefert (No-Op-Test 2026-07-17,
+    # /scf/v1/.../circuit/1/heating-curve → 404). system-control/v1 bietet KEINEN
+    # Heizkreis-Schreibpfad. Heizkurve für scf daher aktuell NICHT schreibbar → bleibt
+    # Lese-Sensor. Wieder aufnehmen, sobald Vaillant einen scf-Schreibpfad bereitstellt.
 }
 
 

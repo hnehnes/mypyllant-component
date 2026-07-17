@@ -369,15 +369,10 @@ class SystemCoordinator(MyPyllantCoordinator):
             return
         self._scf_snapshot_logged.add(system_id)
         writable = [p for p in points if p.writable]
-        _LOGGER.warning(
-            "SCF-SNAPSHOT %s — %d schreibbare Felder (Restore-Punkt):",
-            system_id,
-            len(writable),
-        )
-        for p in writable:
-            _LOGGER.warning(
-                "SCF-SNAPSHOT %s = %r  [%s]", "/".join(p.path), p.value, p.mtype
-            )
+        # Kompakt als DEBUG (Restore-Punkt liegt in docs/RESTORE-POINT.md). Auf DEBUG,
+        # damit der Normalbetrieb das Log nicht mit 39 Zeilen pro Neustart flutet.
+        snapshot = {"/".join(p.path): p.value for p in writable}
+        _LOGGER.debug("SCF-SNAPSHOT %s: %s", system_id, snapshot)
 
     async def _fetch_scf_systems(self, scf_homes: list[Home]) -> list[ScfSystem]:
         """State jedes scf-Systems holen und in HA-taugliche Punkte übersetzen.
