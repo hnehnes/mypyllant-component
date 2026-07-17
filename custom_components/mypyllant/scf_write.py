@@ -125,12 +125,11 @@ SCHEDULE_MAP: dict[tuple[str, str, str], tuple[str, bool]] = {
     ("zoneSettings", "heating", "timePeriods"): (
         "zones/{i}/heating-time-periods", True,
     ),
-    # WW-Ladezeiten (circuitTimePeriods) — Endpunkt per gebündeltem No-Op-Probe zu bestätigen.
-    # Kandidaten: domestic-hot-water/{i}/{time-periods|circuit-time-periods|
-    # loading-time-periods|dhw-time-periods}. Kein setpoint. Bis bestätigt: None (Service
-    # lehnt diesen Plan mit klarer Meldung ab, statt blind auf einen falschen Pfad zu schreiben).
+    # WW-Ladezeiten (circuitTimePeriods) — VERIFIZIERT per No-Op-Probe (202 Accepted,
+    # 2026-07-17). Die anderen Kandidaten (time-periods, loading-time-periods,
+    # dhw-time-periods) lieferten 404. Kein setpoint (WW-Ladung).
     ("domesticHotWaterSettings", "configuration", "circuitTimePeriods"): (
-        None, False,
+        "domestic-hot-water/{i}/circuit-time-periods", False,
     ),
 }
 
