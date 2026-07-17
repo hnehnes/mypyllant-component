@@ -49,13 +49,18 @@ NEW = {
 
 def _candidates(sid: str) -> list[tuple[str, str]]:
     base = f"{SYSTEM_CONTROL_API_URL_BASE}/systems/{sid}/domestic-hot-water/{DHW_INDEX}"
-    # system-control nutzt für Zonen 'heating-time-periods' (Periods, Bindestrich).
-    # Analog für die Zirkulationspumpe der WW → 'periods'-Varianten.
+    # Alle plausiblen Segmente in EINEM Lauf (Quota schonen). system-control nutzt für
+    # Zonen 'heating-time-periods'; für Heizkreise 'circuits' (Plural). Daher breite
+    # Abdeckung: periods/windows × pump-präfix × Bindestrich/Slash.
     return [
-        ("A circ-pump-time-periods", f"{base}/circulation-pump-time-periods"),
-        ("B circ-pump/time-periods", f"{base}/circulation-pump/time-periods"),
-        ("C circulation-time-periods", f"{base}/circulation-time-periods"),
-        ("D circulation-pump", f"{base}/circulation-pump"),
+        ("01 circulation-pump-time-periods", f"{base}/circulation-pump-time-periods"),
+        ("02 circulation-pump/time-periods", f"{base}/circulation-pump/time-periods"),
+        ("03 circulation-time-periods", f"{base}/circulation-time-periods"),
+        ("04 circulation-pump-time-windows", f"{base}/circulation-pump-time-windows"),
+        ("05 circulation-pump/time-windows", f"{base}/circulation-pump/time-windows"),
+        ("06 circulation-pump", f"{base}/circulation-pump"),
+        ("07 circulation-pump-schedule", f"{base}/circulation-pump-schedule"),
+        ("08 dhw-circulation-time-periods", f"{base}/dhw-circulation-time-periods"),
     ]
 
 
@@ -66,13 +71,9 @@ async def _patch(api, url, body) -> tuple[int, str]:
         return r.status, (await r.text())[:150]
 
 
-async def probe(api: MyPyllantAPI) -> None:
-    homes = [h async for h in api.get_homes()]
-    if not homes:
-        _LOGGER.error("SCF-CIRC: keine Homes")
-        return
-    sid = homes[0].system_id
-
+async def probe(api: MyPyllantAPI, sid: str) -> None:
+    # sid kommt direkt vom Wrapper (fetch_scf_state) — KEIN extra get_homes-Call (spart
+    # Quota und den 403-Stolperstein).
     working = None
     for label, url in _candidates(sid):
         try:
@@ -113,7 +114,7 @@ def install() -> None:
         if not _done:
             _done = True
             try:
-                await probe(api)
+                await probe(api, system_id)
             except Exception as exc:
                 _LOGGER.error("SCF-CIRC: unerwartet: %s", exc)
         return state
