@@ -167,3 +167,4 @@ config/*
 
 # Visual Studio
 /.vs
+custom_components/mypyllant/mypyllant-component.zip

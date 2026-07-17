@@ -18,18 +18,14 @@ from __future__ import annotations
 
 import logging
 
-from myPyllant.const import API_URL_BASE, SYSTEM_CONTROL_API_URL_BASE
+from myPyllant.const import SYSTEM_CONTROL_API_URL_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
-# Bases:
-#   SC  = system-control/v1 — der Base, aus dem auch der State kommt. Schreibpfad hier
-#         per No-Op am Gerät VERIFIZIERT.
-#   SCF = scf/v1 (= API_URL_BASE['scf'] + /systems/{id}). Für heating-curve etc. der
-#         einzige Schreibpfad; als Base für Schreibzugriffe noch NICHT bestätigt → die
-#         betreffenden Einträge sind experimentell (per No-Op zu prüfen).
+# Alle bestätigten scf-Schreibpfade liegen unter system-control/v1 — derselben Base wie
+# der State-Read. (/scf/v1 und der /{controlIdentifier}/v1-OpenAPI-Pfad liefern 404;
+# per No-Op-Test am Gerät verifiziert, 2026-07-17.)
 _BASE_SC = "sc"
-_BASE_SCF = "scf"
 
 # Schlüssel: (top_section, subsection, leaf_key). subsection = path[2] bei indexierten
 # Sektionen (zone/circuit/dhw), path[1] bei systemParameters.
@@ -59,14 +55,10 @@ WRITE_MAP: dict[tuple[str, str, str], tuple[str, str, str]] = {
     # nach eigenem No-Op-Test aufnehmen (bleiben bis dahin Lese-Sensoren).
 }
 
-# _BASE_SCF wird derzeit nicht genutzt (scf/v1 liefert für Schreibzugriffe 404), bleibt
-# aber für den Fall, dass Vaillant die Base später aktiviert.
-_ = _BASE_SCF
-
 
 def _base_url(base: str, system_id: str) -> str:
-    if base == _BASE_SCF:
-        return f"{API_URL_BASE['scf']}/systems/{system_id}"
+    # Aktuell nur eine Base; der Parameter bleibt, falls Vaillant weitere Schreibpfade
+    # (z.B. scf/v1) später aktiviert.
     return f"{SYSTEM_CONTROL_API_URL_BASE}/systems/{system_id}"
 
 
