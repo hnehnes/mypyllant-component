@@ -59,21 +59,28 @@ def install() -> None:
     if getattr(myPyllant.api, "_scf_hc_probe", False):
         return
     myPyllant.api._scf_hc_probe = True
-    original = MyPyllantAPI.get_systems
 
-    async def wrapper(self, *a, **kw):
+    # An fetch_scf_state hängen — DAS läuft bei scf-Systemen (get_systems wird für ein
+    # reines scf-Konto nie aufgerufen, weil other_homes leer ist).
+    import custom_components.mypyllant.scf as scf_mod
+
+    original = scf_mod.fetch_scf_state
+
+    async def wrapper(api, system_id):
         global _done
+        state = await original(api, system_id)
         if not _done:
             _done = True
             try:
-                await probe(self)
+                await probe(api)
             except Exception as exc:
                 _LOGGER.error("SCF-HC: unerwartet: %s", exc)
-        async for s in original(self, *a, **kw):
-            yield s
+        return state
 
-    MyPyllantAPI.get_systems = wrapper
-    _LOGGER.error("SCF-HC: installiert")
+    scf_mod.fetch_scf_state = wrapper
+    # scf_probe läuft in __init__ VOR dem Coordinator-Import → dessen
+    # `from .scf import fetch_scf_state` zieht bereits diese umhüllte Version.
+    _LOGGER.error("SCF-HC: installiert (an fetch_scf_state)")
 
 
 install()
