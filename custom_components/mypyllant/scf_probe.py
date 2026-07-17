@@ -1,17 +1,20 @@
-"""Einmalige Sonde: welche Base-URL bedient ein scf-System?
+"""Einmalige Sonde (Runde 2): wo liegen die Systemdaten eines scf/iQconnect-Systems?
 
-Hintergrund: `service-connected-control/scf/v1/systems/{id}` liefert 404. Die Annahme
-`scf → scf` war aus vrc700 abgeleitet, stimmt aber offensichtlich nicht — bei `tli` ist
-das Pfadsegment ja auch nicht `tli`, sondern `end-user-app-api`. Das Mapping steht nicht
-im App-Bundle (die Harmonized-Base kommt dort aus einem Feature-Flag-Store), also wird
-es hier empirisch bestimmt.
+Stand nach Runde 1 — alle 7 Kandidaten unter /systems/{uuid} lieferten 404, ABER:
+  * /homes                                        → 200, 1 Home, nomenclature=iQconnect
+  * /systems/{uuid}/meta-info/control-identifier  → 200, "scf"
+Das System existiert also unter der Legacy-Base; nur die Sammelressource /systems/{uuid}
+gibt es für scf nicht.
 
-Läuft EINMAL beim ersten Coordinator-Refresh, macht ausschließlich GETs und schreibt
-Statuscodes ins Log. Danach entfernen.
+Runde 2 prüft die home-basierte Spur: das App-Bundle adressiert Homes mit der
+SERIENNUMMER (/homes/{serial}/overview, /homes/{serial}/status), nicht mit der UUID.
+
+Nur GETs. Nach Auswertung entfernen.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
 import myPyllant.api
@@ -20,61 +23,64 @@ from myPyllant.api import MyPyllantAPI
 _LOGGER = logging.getLogger(__name__)
 
 ROOT = "https://api.vaillant-group.com/service-connected-control"
+LEGACY = f"{ROOT}/end-user-app-api/v1"
 
-# Kandidaten, begründet:
-#   1  wie tli: Suffix hinter der systemId statt eigener Base
-#   2  bereits widerlegt (404) — als Kontrollpunkt drin, damit das Log selbsterklärend ist
-#   3  ganz ohne Suffix
-#   4  system-control, das myPyllant für Steueraufrufe ohnehin nutzt
-#   5  scf-Base plus tli-artiges Suffix
-#   6/7 Versionsvarianten
-def _candidates(sid: str) -> list[tuple[str, str]]:
+
+def _candidates(sid: str, serial: str) -> list[tuple[str, str]]:
     return [
-        ("1 tli-artiges Suffix", f"{ROOT}/end-user-app-api/v1/systems/{sid}/scf"),
-        ("2 scf/v1 (bekannt 404)", f"{ROOT}/scf/v1/systems/{sid}"),
-        ("3 ohne Suffix", f"{ROOT}/end-user-app-api/v1/systems/{sid}"),
-        ("4 system-control", f"{ROOT}/system-control/v1/systems/{sid}"),
-        ("5 scf/v1 + Suffix", f"{ROOT}/scf/v1/systems/{sid}/scf"),
-        ("6 scf/v2", f"{ROOT}/scf/v2/systems/{sid}"),
-        ("7 end-user-app-api/v2", f"{ROOT}/end-user-app-api/v2/systems/{sid}"),
+        # Kontrollpunkt: MUSS 200 liefern, sonst ist die Sonde selbst kaputt
+        ("00 KONTROLLE ctrl-ident", f"{LEGACY}/systems/{sid}/meta-info/control-identifier"),
+        # Home-basiert (Seriennummer) — die eigentliche Hypothese dieser Runde
+        ("01 homes/{serial}", f"{LEGACY}/homes/{serial}"),
+        ("02 homes/{serial}/overview", f"{LEGACY}/homes/{serial}/overview"),
+        ("03 homes/{serial}/status", f"{LEGACY}/homes/{serial}/status"),
+        # Home-basiert, aber mit UUID statt Serial
+        ("04 homes/{uuid}/overview", f"{LEGACY}/homes/{sid}/overview"),
+        # System-Subressourcen: kartieren, was unter /systems/{uuid} überhaupt existiert
+        ("05 meta-info/time-zone", f"{LEGACY}/systems/{sid}/meta-info/time-zone"),
+        ("06 emf/v2 currentSystem", f"{LEGACY}/emf/v2/{sid}/currentSystem"),
+        # Serial als System-ID
+        ("07 systems/{serial}", f"{LEGACY}/systems/{serial}"),
+        # "Harmonized API" — Feature-Flag-Name aus dem Bundle, Base dort nicht hartcodiert
+        ("08 harmonized/v1", f"{ROOT}/harmonized/v1/systems/{sid}"),
+        ("09 scf/v1 homes/serial", f"{ROOT}/scf/v1/homes/{serial}"),
     ]
 
 
 async def probe(api: MyPyllantAPI) -> None:
+    # Roh-JSON von /homes: die Feldnamen sind nirgends dokumentiert und könnten
+    # direkt verraten, wo die Systemdaten liegen.
     try:
-        homes = [h async for h in api.get_homes()]
+        async with api.aiohttp_session.get(
+            f"{LEGACY}/homes", headers=api.get_authorized_headers()
+        ) as r:
+            raw = await r.text()
+        _LOGGER.error("SCF-PROBE2: /homes roh (%s): %s", r.status, raw[:1500])
+        homes_json = json.loads(raw)
     except Exception as exc:
-        _LOGGER.error("SCF-PROBE: get_homes fehlgeschlagen: %s", exc)
+        _LOGGER.error("SCF-PROBE2: /homes fehlgeschlagen: %s", exc)
         return
 
-    _LOGGER.error("SCF-PROBE: %d Home(s) gefunden", len(homes))
-    for home in homes:
-        sid = home.system_id
-        # Rohantwort von /homes protokollieren: die Feldnamen sind für die weitere
-        # Analyse wertvoll und sonst nirgends dokumentiert.
-        _LOGGER.error(
-            "SCF-PROBE: home nomenclature=%s cag=%s migration_state=%s fw=%s",
-            getattr(home, "nomenclature", None),
-            getattr(home, "cag", None),
-            getattr(home, "migration_state", None),
-            getattr(home, "firmware_version", None),
-        )
-        for label, url in _candidates(sid):
+    for h in homes_json:
+        sid = h.get("systemId") or h.get("system_id") or ""
+        serial = h.get("serialNumber") or h.get("serial_number") or ""
+        _LOGGER.error("SCF-PROBE2: systemId=%s serial=%s", sid, serial)
+        for label, url in _candidates(sid, serial):
             try:
                 async with api.aiohttp_session.get(
                     url, headers=api.get_authorized_headers()
                 ) as r:
-                    body = (await r.text())[:180]
-                    _LOGGER.error("SCF-PROBE: %-24s → %s | %s", label, r.status, body)
+                    body = (await r.text())[:220]
+                    mark = "★★★" if r.status == 200 else "   "
+                    _LOGGER.error("SCF-PROBE2: %s %-26s → %s | %s", mark, label, r.status, body)
             except Exception as exc:
-                _LOGGER.error("SCF-PROBE: %-24s → EXC %s", label, exc)
+                _LOGGER.error("SCF-PROBE2:     %-26s → EXC %s", label, str(exc)[:120])
 
 
 _done = False
 
 
 def install() -> None:
-    """get_systems() umhüllen, damit die Sonde genau einmal mit echter Session läuft."""
     global _done
     if getattr(myPyllant.api, "_scf_probe_installed", False):
         return
@@ -82,9 +88,7 @@ def install() -> None:
 
     original = MyPyllantAPI.get_systems
 
-    # get_systems ist ein ASYNC GENERATOR (es yielded System-Objekte). Der Wrapper muss
-    # deshalb selbst einer sein und durchreichen — ein `return await original(...)`
-    # würde die Integration still zerstören.
+    # get_systems ist ein ASYNC GENERATOR — der Wrapper muss selbst einer sein.
     async def wrapper(self, *a, **kw):
         global _done
         if not _done:
@@ -92,12 +96,12 @@ def install() -> None:
             try:
                 await probe(self)
             except Exception as exc:
-                _LOGGER.error("SCF-PROBE: unerwartet: %s", exc)
+                _LOGGER.error("SCF-PROBE2: unerwartet: %s", exc)
         async for system in original(self, *a, **kw):
             yield system
 
     MyPyllantAPI.get_systems = wrapper
-    _LOGGER.error("SCF-PROBE: installiert")
+    _LOGGER.error("SCF-PROBE2: installiert")
 
 
 install()
