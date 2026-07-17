@@ -18,28 +18,47 @@ from __future__ import annotations
 
 import logging
 
-from myPyllant.const import SYSTEM_CONTROL_API_URL_BASE
+from myPyllant.const import API_URL_BASE, SYSTEM_CONTROL_API_URL_BASE
 
 _LOGGER = logging.getLogger(__name__)
 
+# Bases:
+#   SC  = system-control/v1 — der Base, aus dem auch der State kommt. Schreibpfad hier
+#         per No-Op am Gerät VERIFIZIERT.
+#   SCF = scf/v1 (= API_URL_BASE['scf'] + /systems/{id}). Für heating-curve etc. der
+#         einzige Schreibpfad; als Base für Schreibzugriffe noch NICHT bestätigt → die
+#         betreffenden Einträge sind experimentell (per No-Op zu prüfen).
+_BASE_SC = "sc"
+_BASE_SCF = "scf"
 
 # Schlüssel: (top_section, subsection, leaf_key). subsection = path[2] bei indexierten
-# Sektionen (zone/circuit/dhw), path[1] bei systemParameters. Wert:
-# (endpoint_template, body_key). {i} = Index aus path[1], {sid} = System-ID.
-WRITE_MAP: dict[tuple[str, str, str], tuple[str, str]] = {
+# Sektionen (zone/circuit/dhw), path[1] bei systemParameters.
+# Wert: (endpoint_template, body_key, base). {i} = Index aus path[1].
+WRITE_MAP: dict[tuple[str, str, str], tuple[str, str, str]] = {
+    # --- system-control/v1, Base VERIFIZIERT ---
     ("domesticHotWaterSettings", "configuration", "cylinderTemperatureSetpoint"): (
-        "domestic-hot-water/{i}/cylinder-temperature",
-        "setpoint",
+        "domestic-hot-water/{i}/cylinder-temperature", "setpoint", _BASE_SC,
     ),
     ("domesticHotWaterSettings", "configuration", "operationMode"): (
-        "domestic-hot-water/{i}/operation-mode",
-        "operationMode",
+        "domestic-hot-water/{i}/operation-mode", "operationMode", _BASE_SC,
     ),
     ("zoneSettings", "general", "operationMode"): (
-        "zones/{i}/operation-mode",
-        "operationMode",
+        "zones/{i}/operation-mode", "operationMode", _BASE_SC,
+    ),
+    ("zoneSettings", "heating", "manualModeTemperatureSetpoint"): (
+        "zones/{i}/heating-temperature-setpoint", "setpoint", _BASE_SC,
+    ),
+    # --- scf/v1, Base EXPERIMENTELL (per No-Op-Test zu bestätigen) ---
+    ("circuitSettings", "configuration", "heatingCurve"): (
+        "circuit/{i}/heating-curve", "heatingCurve", _BASE_SCF,
     ),
 }
+
+
+def _base_url(base: str, system_id: str) -> str:
+    if base == _BASE_SCF:
+        return f"{API_URL_BASE['scf']}/systems/{system_id}"
+    return f"{SYSTEM_CONTROL_API_URL_BASE}/systems/{system_id}"
 
 
 def map_key(path: list[str]) -> tuple[str, str, str] | None:
@@ -55,8 +74,8 @@ def map_key(path: list[str]) -> tuple[str, str, str] | None:
     return None
 
 
-def write_spec(path: list[str]) -> tuple[str, str] | None:
-    """(endpoint_template, body_key) für einen Punkt, oder None wenn nicht schreibbar."""
+def write_spec(path: list[str]) -> tuple[str, str, str] | None:
+    """(endpoint_template, body_key, base) für einen Punkt, oder None wenn nicht schreibbar."""
     key = map_key(path)
     return WRITE_MAP.get(key) if key else None
 
@@ -65,10 +84,10 @@ def build_url(path: list[str], system_id: str) -> str | None:
     spec = write_spec(path)
     if not spec:
         return None
-    endpoint_template, _ = spec
+    endpoint_template, _, base = spec
     index = path[1] if len(path) >= 2 else ""
     suffix = endpoint_template.format(i=index)
-    return f"{SYSTEM_CONTROL_API_URL_BASE}/systems/{system_id}/{suffix}"
+    return f"{_base_url(base, system_id)}/{suffix}"
 
 
 async def patch_value(api, path: list[str], system_id: str, value) -> None:
@@ -77,7 +96,7 @@ async def patch_value(api, path: list[str], system_id: str, value) -> None:
     url = build_url(path, system_id)
     if not spec or not url:
         raise ValueError(f"Kein Schreib-Endpunkt für {path}")
-    _, body_key = spec
+    _, body_key, _ = spec
     body = {body_key: value}
     _LOGGER.debug("scf PATCH %s %s", url, body)
     async with api.aiohttp_session.patch(

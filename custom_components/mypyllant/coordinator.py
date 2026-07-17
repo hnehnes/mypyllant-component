@@ -360,6 +360,25 @@ class SystemCoordinator(MyPyllantCoordinator):
             self._raise_api_down(e)
             return []  # mypy
 
+    _scf_snapshot_logged: set[str] = set()
+
+    def _log_scf_snapshot_once(self, system_id: str, points) -> None:
+        """Einmal pro HA-Prozess ALLE schreibbaren Felder mit aktuellem Wert loggen —
+        als Restore-Punkt vor Schreibtests. Marker SCF-SNAPSHOT."""
+        if system_id in self._scf_snapshot_logged:
+            return
+        self._scf_snapshot_logged.add(system_id)
+        writable = [p for p in points if p.writable]
+        _LOGGER.warning(
+            "SCF-SNAPSHOT %s — %d schreibbare Felder (Restore-Punkt):",
+            system_id,
+            len(writable),
+        )
+        for p in writable:
+            _LOGGER.warning(
+                "SCF-SNAPSHOT %s = %r  [%s]", "/".join(p.path), p.value, p.mtype
+            )
+
     async def _fetch_scf_systems(self, scf_homes: list[Home]) -> list[ScfSystem]:
         """State jedes scf-Systems holen und in HA-taugliche Punkte übersetzen.
 
@@ -378,6 +397,7 @@ class SystemCoordinator(MyPyllantCoordinator):
                 )
                 continue
             points = walk_state(home.system_id, state)
+            self._log_scf_snapshot_once(home.system_id, points)
             result.append(
                 ScfSystem(
                     system_id=home.system_id,
