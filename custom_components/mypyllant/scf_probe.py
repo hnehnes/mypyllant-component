@@ -1,13 +1,18 @@
-"""Einmalige Sonde (Runde 2): wo liegen die Systemdaten eines scf/iQconnect-Systems?
+"""Einmalige Sonde (Runde 3): wo liegt die THERMISCHE Telemetrie eines scf-Systems?
 
-Stand nach Runde 1 — alle 7 Kandidaten unter /systems/{uuid} lieferten 404, ABER:
-  * /homes                                        → 200, 1 Home, nomenclature=iQconnect
-  * /systems/{uuid}/meta-info/control-identifier  → 200, "scf"
-Das System existiert also unter der Legacy-Base; nur die Sammelressource /systems/{uuid}
-gibt es für scf nicht.
+Stand:
+  200 → /homes, /homes/{serial}, /homes/{serial}/overview, /homes/{serial}/status
+        /systems/{uuid}/meta-info/control-identifier  ("scf")
+        /systems/{uuid}/meta-info/time-zone
+        /emf/v2/{uuid}/currentSystem                  (Energiedaten!)
+  404 → /systems/{uuid} unter jeder probierten Base
 
-Runde 2 prüft die home-basierte Spur: das App-Bundle adressiert Homes mit der
-SERIENNUMMER (/homes/{serial}/overview, /homes/{serial}/status), nicht mit der UUID.
+Muster: Unter der Legacy-Base existieren die SUB-Ressourcen, nur die Sammelressource
+/systems/{uuid} nicht. Leithypothese dieser Runde: dann existieren die Zonen-/DHW-
+Ressourcen evtl. DIREKT unter /systems/{uuid}/… — ohne das /tli-Segment, das myPyllant
+für TLI-Regler einschiebt.
+
+Energie liefert emf/v2 bereits; gesucht ist Vorlauf/Rücklauf/Sole/Modi/DHW.
 
 Nur GETs. Nach Auswertung entfernen.
 """
@@ -28,53 +33,62 @@ LEGACY = f"{ROOT}/end-user-app-api/v1"
 
 def _candidates(sid: str, serial: str) -> list[tuple[str, str]]:
     return [
-        # Kontrollpunkt: MUSS 200 liefern, sonst ist die Sonde selbst kaputt
-        ("00 KONTROLLE ctrl-ident", f"{LEGACY}/systems/{sid}/meta-info/control-identifier"),
-        # Home-basiert (Seriennummer) — die eigentliche Hypothese dieser Runde
-        ("01 homes/{serial}", f"{LEGACY}/homes/{serial}"),
-        ("02 homes/{serial}/overview", f"{LEGACY}/homes/{serial}/overview"),
-        ("03 homes/{serial}/status", f"{LEGACY}/homes/{serial}/status"),
-        # Home-basiert, aber mit UUID statt Serial
-        ("04 homes/{uuid}/overview", f"{LEGACY}/homes/{sid}/overview"),
-        # System-Subressourcen: kartieren, was unter /systems/{uuid} überhaupt existiert
-        ("05 meta-info/time-zone", f"{LEGACY}/systems/{sid}/meta-info/time-zone"),
-        ("06 emf/v2 currentSystem", f"{LEGACY}/emf/v2/{sid}/currentSystem"),
-        # Serial als System-ID
-        ("07 systems/{serial}", f"{LEGACY}/systems/{serial}"),
-        # "Harmonized API" — Feature-Flag-Name aus dem Bundle, Base dort nicht hartcodiert
-        ("08 harmonized/v1", f"{ROOT}/harmonized/v1/systems/{sid}"),
-        ("09 scf/v1 homes/serial", f"{ROOT}/scf/v1/homes/{serial}"),
+        # Leithypothese: Sub-Ressourcen direkt unter /systems/{uuid}, ohne /tli
+        ("10 systems/{id}/zones", f"{LEGACY}/systems/{sid}/zones"),
+        ("11 systems/{id}/zone/0", f"{LEGACY}/systems/{sid}/zone/0"),
+        ("12 systems/{id}/dhw/0", f"{LEGACY}/systems/{sid}/domestic-hot-water/0"),
+        ("13 systems/{id}/circuits", f"{LEGACY}/systems/{sid}/circuits"),
+        ("14 systems/{id}/state", f"{LEGACY}/systems/{sid}/state"),
+        ("15 systems/{id}/status", f"{LEGACY}/systems/{sid}/status"),
+        ("16 systems/{id}/devices", f"{LEGACY}/systems/{sid}/devices"),
+        # scf-Base mit Sub-Ressource (Sammelressource dort war 404 — Sub evtl. nicht)
+        ("17 scf/v1 .../zones", f"{ROOT}/scf/v1/systems/{sid}/zones"),
+        ("18 scf/v1 .../zone/0", f"{ROOT}/scf/v1/systems/{sid}/zone/0"),
+        # emf-Nachbarn: currentSystem liefert 200, evtl. gibt es mehr
+        ("19 emf/v2 devices", f"{LEGACY}/emf/v2/{sid}/devices"),
     ]
 
 
+async def _dump(api: MyPyllantAPI, label: str, url: str, limit: int = 3000) -> None:
+    try:
+        async with api.aiohttp_session.get(
+            url, headers=api.get_authorized_headers()
+        ) as r:
+            body = (await r.text())[:limit]
+            _LOGGER.error("SCF-PROBE3-DUMP %s (%s):\n%s", label, r.status, body)
+    except Exception as exc:
+        _LOGGER.error("SCF-PROBE3-DUMP %s → EXC %s", label, str(exc)[:150])
+
+
 async def probe(api: MyPyllantAPI) -> None:
-    # Roh-JSON von /homes: die Feldnamen sind nirgends dokumentiert und könnten
-    # direkt verraten, wo die Systemdaten liegen.
     try:
         async with api.aiohttp_session.get(
             f"{LEGACY}/homes", headers=api.get_authorized_headers()
         ) as r:
-            raw = await r.text()
-        _LOGGER.error("SCF-PROBE2: /homes roh (%s): %s", r.status, raw[:1500])
-        homes_json = json.loads(raw)
+            homes_json = json.loads(await r.text())
     except Exception as exc:
-        _LOGGER.error("SCF-PROBE2: /homes fehlgeschlagen: %s", exc)
+        _LOGGER.error("SCF-PROBE3: /homes fehlgeschlagen: %s", exc)
         return
 
     for h in homes_json:
-        sid = h.get("systemId") or h.get("system_id") or ""
-        serial = h.get("serialNumber") or h.get("serial_number") or ""
-        _LOGGER.error("SCF-PROBE2: systemId=%s serial=%s", sid, serial)
+        sid = h.get("systemId", "")
+        serial = h.get("serialNumber", "")
+
         for label, url in _candidates(sid, serial):
             try:
                 async with api.aiohttp_session.get(
                     url, headers=api.get_authorized_headers()
                 ) as r:
-                    body = (await r.text())[:220]
+                    body = (await r.text())[:200]
                     mark = "★★★" if r.status == 200 else "   "
-                    _LOGGER.error("SCF-PROBE2: %s %-26s → %s | %s", mark, label, r.status, body)
+                    _LOGGER.error("SCF-PROBE3: %s %-22s → %s | %s", mark, label, r.status, body)
             except Exception as exc:
-                _LOGGER.error("SCF-PROBE2:     %-26s → EXC %s", label, str(exc)[:120])
+                _LOGGER.error("SCF-PROBE3:     %-22s → EXC %s", label, str(exc)[:110])
+
+        # Volldumps der bekannt funktionierenden Endpunkte: "overview" ist der
+        # Dashboard-Endpunkt der App und der wahrscheinlichste Träger der Telemetrie.
+        await _dump(api, "homes/{serial}/overview", f"{LEGACY}/homes/{serial}/overview")
+        await _dump(api, "emf/v2/currentSystem", f"{LEGACY}/emf/v2/{sid}/currentSystem", 2500)
 
 
 _done = False
@@ -88,7 +102,7 @@ def install() -> None:
 
     original = MyPyllantAPI.get_systems
 
-    # get_systems ist ein ASYNC GENERATOR — der Wrapper muss selbst einer sein.
+    # get_systems ist ein ASYNC GENERATOR — Wrapper muss selbst einer sein.
     async def wrapper(self, *a, **kw):
         global _done
         if not _done:
@@ -96,12 +110,12 @@ def install() -> None:
             try:
                 await probe(self)
             except Exception as exc:
-                _LOGGER.error("SCF-PROBE2: unerwartet: %s", exc)
+                _LOGGER.error("SCF-PROBE3: unerwartet: %s", exc)
         async for system in original(self, *a, **kw):
             yield system
 
     MyPyllantAPI.get_systems = wrapper
-    _LOGGER.error("SCF-PROBE2: installiert")
+    _LOGGER.error("SCF-PROBE3: installiert")
 
 
 install()
