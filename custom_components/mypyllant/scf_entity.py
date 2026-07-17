@@ -173,8 +173,12 @@ class ScfSensor(ScfEntity, SensorEntity):
     def extra_state_attributes(self):
         point = self.point
         if point and point.is_schedule:
-            # Voller Plan pro Tag als Attribute (für Automationen/Detailansicht).
-            return {day: slots for day, slots in _schedule_by_day(point.value).items()}
+            # Voller Plan pro Tag als Attribute (für Automationen/Detailansicht) plus die
+            # rohen Slots (mit setpoint) unter "raw", damit ein Wochenplan verlustfrei
+            # gelesen und per scf_set_schedule zurückgeschrieben werden kann.
+            attrs = {day: slots for day, slots in _schedule_by_day(point.value).items()}
+            attrs["raw"] = point.value
+            return attrs
         return None
 
     async def set_schedule(self, schedule: dict) -> None:
