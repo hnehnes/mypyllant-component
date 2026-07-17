@@ -49,9 +49,13 @@ NEW = {
 
 def _candidates(sid: str) -> list[tuple[str, str]]:
     base = f"{SYSTEM_CONTROL_API_URL_BASE}/systems/{sid}/domestic-hot-water/{DHW_INDEX}"
+    # system-control nutzt für Zonen 'heating-time-periods' (Periods, Bindestrich).
+    # Analog für die Zirkulationspumpe der WW → 'periods'-Varianten.
     return [
-        ("A hyphen", f"{base}/circulation-pump-time-windows"),
-        ("B slash", f"{base}/circulation-pump/time-windows"),
+        ("A circ-pump-time-periods", f"{base}/circulation-pump-time-periods"),
+        ("B circ-pump/time-periods", f"{base}/circulation-pump/time-periods"),
+        ("C circulation-time-periods", f"{base}/circulation-time-periods"),
+        ("D circulation-pump", f"{base}/circulation-pump"),
     ]
 
 
