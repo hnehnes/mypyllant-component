@@ -117,11 +117,12 @@ async def patch_value(api, path: list[str], system_id: str, value) -> None:
 # the /{controlIdentifier}/v1 OpenAPI path both 404). The POST/DELETE pair itself is not
 # yet no-op-verified at the device — the base is the established scf write base, but the
 # first live POST actually starts a charge, so treat the first run as the verification.
-# The DHW boost does NOT live under system-control/v1 like the scf value-writes — that path
-# returns 404. It is served by the shared app API (end-user-app-api/v1), the same base the app
-# uses for homes/meta-info/boost (docs/api-notes.md). Derived from SYSTEM_CONTROL_API_URL_BASE so
-# it tracks the host. Verified at the device 2026-07-18 (system-control → 404, end-user-app-api → ok).
-_EUA_BASE = SYSTEM_CONTROL_API_URL_BASE.replace("system-control/v1", "end-user-app-api/v1")
+# The DHW boost is the ONE scf write that does NOT live under system-control/v1 (404 there) nor
+# end-user-app-api/v1 (404). The OpenAPI spec (docs/openapi-endpoints-3.8.0.txt) lists boost ONLY
+# under /{controlIdentifier}/v1/.../domestic-hot-water/{i}/boost — for scf that is the scf/v1 base
+# (the same one the state aggregate 404s on, but this action path is served there). Derived from
+# SYSTEM_CONTROL_API_URL_BASE so it tracks the host.
+_EUA_BASE = SYSTEM_CONTROL_API_URL_BASE.replace("system-control/v1", "scf/v1")
 
 
 async def call_boost(api, system_id: str, dhw_index: str, start: bool) -> None:
