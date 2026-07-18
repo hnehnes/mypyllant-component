@@ -202,12 +202,10 @@ class ScfBinarySensor(ScfEntity, BinarySensorEntity):
 
 
 # --- Steuerung ---------------------------------------------------------------
-from homeassistant.components.button import ButtonEntity  # noqa: E402
 from homeassistant.components.number import NumberEntity  # noqa: E402
 from homeassistant.components.select import SelectEntity  # noqa: E402
 
 from custom_components.mypyllant.scf_write import (  # noqa: E402
-    call_boost,
     patch_schedule,
     patch_value,
 )
@@ -269,79 +267,3 @@ class ScfSelect(ScfEntity, ScfWriteMixin, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         await self._write(option)
-
-
-class ScfBoostButton(CoordinatorEntity, ButtonEntity):
-    """DHW one-time cylinder charge (boost) as a Button.
-
-    Not derived from a ScfPoint: the boost is a command (POST/DELETE .../boost), not a
-    writable state leaf. One system may have several DHW circuits → keyed by index.
-    ``start=True`` presses trigger a charge (POST), ``start=False`` cancel it (DELETE).
-    """
-
-    coordinator: SystemCoordinator
-    _attr_has_entity_name = False
-
-    def __init__(
-        self, coordinator: SystemCoordinator, system_id: str, dhw_index: str, start: bool
-    ) -> None:
-        super().__init__(coordinator)
-        self.system_id = system_id
-        self._index = dhw_index
-        self._start = start
-        self._attr_icon = "mdi:water-plus" if start else "mdi:water-off"
-
-    @property
-    def _system(self):
-        for s in self.coordinator.scf_systems:
-            if s.system_id == self.system_id:
-                return s
-        return None
-
-    def _state_value(self, key: str):
-        """Current value of a domesticHotWaterSettings/{i}/state/<key> point, or None."""
-        system = self._system
-        if not system:
-            return None
-        suffix = f"domesticHotWaterSettings_{self._index}_state_{key}"
-        for p in system.points:
-            if p.unique_suffix == suffix:
-                return p.value
-        return None
-
-    @property
-    def available(self) -> bool:
-        # Always available while the system is present; the device rejects an invalid
-        # boost itself (start needs isBoostPossible, cancel needs an active boost).
-        return self._system is not None
-
-    @property
-    def unique_id(self) -> str:
-        tail = "boost" if self._start else "boost_cancel"
-        return f"{DOMAIN}_scf_{self.system_id}_dhw_{self._index}_{tail}"
-
-    @property
-    def name(self) -> str:
-        base = f"Warmwasser {self._index} Einmalladung"
-        return base if self._start else f"{base} abbrechen"
-
-    @property
-    def extra_state_attributes(self):
-        return {
-            "boost_active": self._state_value("activeOperation") == "BOOST_ACTIVE",
-            "boost_possible": bool(self._state_value("isBoostPossible")),
-        }
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        system = self._system
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"scf_{self.system_id}")},
-            name=system.home_name if system else "Vaillant iQconnect",
-            manufacturer="Vaillant",
-            model=system.nomenclature if system else "iQconnect",
-        )
-
-    async def async_press(self) -> None:
-        await call_boost(self.coordinator.api, self.system_id, self._index, self._start)
-        await self.coordinator.async_request_refresh()
