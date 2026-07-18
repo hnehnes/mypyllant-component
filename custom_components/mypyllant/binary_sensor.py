@@ -34,11 +34,23 @@ async def async_setup_entry(
     coordinator: SystemCoordinator = hass.data[DOMAIN][config.entry_id][
         "system_coordinator"
     ]
-    if not coordinator.data:
-        _LOGGER.warning("No system data, skipping binary sensors")
-        return
 
     sensors: EntityList[BinarySensorEntity] = EntityList()
+
+    # scf/iQconnect: separate data path, independent of the (empty for scf) coordinator.data
+    from .scf_entity import ScfBinarySensor
+
+    for scf_system in getattr(coordinator, "scf_systems", []):
+        for point in scf_system.by_platform("binary_sensor"):
+            sensors.append(lambda p=point: ScfBinarySensor(coordinator, p))
+
+    if not coordinator.data:
+        if not sensors:
+            _LOGGER.warning("No system data, skipping binary sensors")
+            return
+        async_add_entities(sensors)  # type: ignore
+        return
+
     for index, system in enumerate(coordinator.data):
         sensors.append(lambda: ControlError(index, coordinator))
         sensors.append(lambda: ControlOnline(index, coordinator))

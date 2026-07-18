@@ -30,7 +30,19 @@ from Saunier Duval & Bulex).
 * Vaillant EcoCompact VSC206 4-5 boiler + Multimatic VRC700/6 + gateway VR920
 * Saunier Duval DUOMAX F30 90 + MISET Radio + MiLink V3
 * VR42 controllers are also supported
+* Vaillant geoCOMPACT VWS 52/8.1 iQ (iQconnect generation, control identifier `scf`, product type `VR_NEEXT`)
 * [More are documented here](https://signalkraft.com/mypyllant-component/#tested-setups)
+
+### iQconnect / `scf` systems
+
+iQconnect-generation devices (system controller + internet module built into the appliance,
+no external gateway) report the control identifier `scf`. Their state is not served by the
+usual aggregate endpoint (which returns 404); instead it comes as a single self-describing
+tree from `system-control/v1/systems/{id}/state`, which is walked generically into sensors,
+binary sensors, numbers, selects and read-only weekly-schedule sensors. Writable weekly
+programs (zone heating, DHW charge, DHW circulation) can be set via the
+`mypyllant.scf_set_schedule` service. Requires the `scf` control identifier in the myPyllant
+library (0.9.17+).
 
 ## Features
 
