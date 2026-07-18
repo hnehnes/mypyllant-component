@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from . import scf_patch  # noqa: F401  # HA test build: adds scf via runtime patch
+
 import logging
 from datetime import datetime as dt, timedelta
 import voluptuous as vol
