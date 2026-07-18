@@ -118,11 +118,22 @@ async def patch_value(api, path: list[str], system_id: str, value) -> None:
 # yet no-op-verified at the device — the base is the established scf write base, but the
 # first live POST actually starts a charge, so treat the first run as the verification.
 async def call_boost(api, system_id: str, dhw_index: str, start: bool) -> None:
-    """Start (POST) or cancel (DELETE) the DHW one-time cylinder charge. Raises on HTTP error."""
+    """Start (POST) or cancel (DELETE) the DHW one-time cylinder charge. Raises on HTTP error.
+
+    The start POST must carry an empty JSON body ``{}`` — this sets
+    ``Content-Type: application/json``, without which the Vaillant WAF rejects the
+    request (HTTP 499 "The requested URL was rejected"). The cancel DELETE takes no
+    body. Matches myPyllant's ``boost_domestic_hot_water`` / ``cancel_hot_water_boost``.
+    """
     url = f"{_base_url(_BASE_SC, system_id)}/domestic-hot-water/{dhw_index}/boost"
-    method = api.aiohttp_session.post if start else api.aiohttp_session.delete
-    _LOGGER.debug("scf %s %s", "POST" if start else "DELETE", url)
-    async with method(url, headers=api.get_authorized_headers()) as resp:
+    headers = api.get_authorized_headers()
+    if start:
+        _LOGGER.debug("scf POST %s", url)
+        ctx = api.aiohttp_session.post(url, json={}, headers=headers)
+    else:
+        _LOGGER.debug("scf DELETE %s", url)
+        ctx = api.aiohttp_session.delete(url, headers=headers)
+    async with ctx as resp:
         resp.raise_for_status()
 
 
