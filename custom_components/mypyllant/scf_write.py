@@ -105,6 +105,27 @@ async def patch_value(api, path: list[str], system_id: str, value) -> None:
         resp.raise_for_status()
 
 
+# --- DHW Boost (Einmalladung / one-time cylinder charge) --------------------
+#
+# The boost is a COMMAND, not a value-set: the app (and the device's hot-water menu)
+# start it via POST and cancel it via DELETE on
+#     .../domestic-hot-water/{i}/boost   (no request body)
+# It is therefore not part of WRITE_MAP (which only maps writable state leaves to a
+# PATCH {key: value}) and gets its own dedicated call, surfaced as a Button entity.
+#
+# Base: the same system-control/v1 base as every other confirmed scf write (…/scf/v1 and
+# the /{controlIdentifier}/v1 OpenAPI path both 404). The POST/DELETE pair itself is not
+# yet no-op-verified at the device — the base is the established scf write base, but the
+# first live POST actually starts a charge, so treat the first run as the verification.
+async def call_boost(api, system_id: str, dhw_index: str, start: bool) -> None:
+    """Start (POST) or cancel (DELETE) the DHW one-time cylinder charge. Raises on HTTP error."""
+    url = f"{_base_url(_BASE_SC, system_id)}/domestic-hot-water/{dhw_index}/boost"
+    method = api.aiohttp_session.post if start else api.aiohttp_session.delete
+    _LOGGER.debug("scf %s %s", "POST" if start else "DELETE", url)
+    async with method(url, headers=api.get_authorized_headers()) as resp:
+        resp.raise_for_status()
+
+
 # --- Wochenpläne (TIME_PERIODS) ---------------------------------------------
 #
 # Bewusst GETRENNT von WRITE_MAP gehalten: Schedules bleiben Lese-Sensoren
